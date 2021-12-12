@@ -8,35 +8,31 @@ Most of the configurations are similar except for the client-based source addres
 
 # Example
 
-    . { 
-        # Read address list file，One IP address or CIDR per line
-        dnssrc locals.conf {
-            expire 30s
-            path_reload 3s
-            max_fails 0
-            health_check 5s
-            to 114.114.114.114 223.5.5.5
-            policy round_robin
-            bootstrap 172.21.66.1
-            debug
-        }
-
-        # Read url data, Content format as above
-        dnssrc https://xxx.xx/xx {
-        
+    . {
+        cache 1
+        debug
+        datahub {
+            geoip_path data/geoip.dat
+            geosite_path data/geosite.dat
+            geoip_cache cn hk jp google apple
+            geosite_cache cn hk jp private apple
+            geodat_upgrade_url http://xxxx.com
+            geodat_upgrade_cron 0 30 0 * * *
+            keyword_table cn data/keyword_cn.txt
+            reload @every 3s
         }
     
-        dnssrc 172.21.66.137 192.168.0.1/24 {
-            expire 1s
-            path_reload 3s
+        geoforward cn {
             max_fails 0
-            health_check 5s
-            to json-doh://dns.google/resolve
-            to 1.1.1.1
-            to 9.9.9.9
+            health_check 30s
+            to 114.114.114.114 223.5.5.5
             policy round_robin
-            bootstrap 172.21.66.1
-            debug
+        }
+    
+        geoforward !cn {
+            max_fails 0
+            health_check 30s
+            to 114.114.114.114 223.5.5.5
+            policy round_robin
         }
     }
-
