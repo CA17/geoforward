@@ -4,7 +4,6 @@
 
 This plugin is based on the `github.com/leiless/dnsredir` extension, many thanks to `dnsredir ` for the inspiration
 
-Most of the configurations are similar except for the client-based source address changes
 
 # Example
 
