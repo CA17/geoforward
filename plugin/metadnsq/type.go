@@ -1,6 +1,6 @@
 // Taken from github.com/coredns/plugin/forward/type.go with modification
 
-package geoforward
+package metadnsq
 
 import (
 	"crypto/tls"

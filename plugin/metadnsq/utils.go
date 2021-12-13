@@ -1,4 +1,4 @@
-package geoforward
+package metadnsq
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/miekg/dns"
 )
 
-const pluginName = "geoforward"
+const pluginName = "metadnsq"
 
 var (
 	pluginVersion    = "?"

@@ -1,4 +1,4 @@
-package geoforward
+package metadnsq
 
 type matchClient struct {
 }

@@ -2,7 +2,7 @@
  * Created Feb 23, 2020
  */
 
-package geoforward
+package metadnsq
 
 import (
 	"crypto/tls"

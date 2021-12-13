@@ -1,4 +1,4 @@
-# geoforward
+# metadnsq
 
 *dnssrc* - a CoreDNS forwarding/proxy plugin with the main function of triaging based on client sources
 
@@ -21,14 +21,14 @@ This plugin is based on the `github.com/leiless/dnsredir` extension, many thanks
             reload @every 3s
         }
     
-        geoforward cn {
+        metadnsq cn {
             max_fails 0
             health_check 30s
             to 114.114.114.114 223.5.5.5
             policy round_robin
         }
     
-        geoforward !cn {
+        metadnsq !cn {
             max_fails 0
             health_check 30s
             to 114.114.114.114 223.5.5.5

@@ -1,4 +1,4 @@
-module github.com/ca17/geoforward
+module github.com/ca17/metadnsq
 
 go 1.16
 

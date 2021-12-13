@@ -16,7 +16,7 @@
         reload @every 3s
     }
 
-    geoforward cn {
+    metadnsq cn {
         max_fails 0
         health_check 30s
         to 114.114.114.114 223.5.5.5

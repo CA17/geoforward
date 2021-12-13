@@ -1,4 +1,4 @@
-package geoforward
+package metadnsq
 
 import (
 	"github.com/coredns/coredns/plugin"

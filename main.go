@@ -2,7 +2,7 @@ package main
 
 import (
 	_ "github.com/ca17/datahub/plugin/datahub"
-	_ "github.com/ca17/geoforward/plugin/geoforward"
+	_ "github.com/ca17/metadnsq/plugin/metadnsq"
 	"github.com/coredns/coredns/core/dnsserver"
 	_ "github.com/coredns/coredns/core/plugin"
 	"github.com/coredns/coredns/coremain"
@@ -22,6 +22,6 @@ func main() {
 	idx2 := index(dnsserver.Directives, "geoip")
 	dnsserver.Directives = append(dnsserver.Directives[:idx2], append([]string{"datahub"}, dnsserver.Directives[idx2:]...)...)
 	idx := index(dnsserver.Directives, "forward")
-	dnsserver.Directives = append(dnsserver.Directives[:idx], append([]string{"geoforward"}, dnsserver.Directives[idx:]...)...)
+	dnsserver.Directives = append(dnsserver.Directives[:idx], append([]string{"metadnsq"}, dnsserver.Directives[idx:]...)...)
 	coremain.Run()
 }
