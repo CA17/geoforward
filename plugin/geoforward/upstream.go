@@ -322,6 +322,15 @@ func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 		}
 		u.transport.tlsConfig.ServerName = serverName
 		log.Infof("%v: %v", dir, serverName)
+	case "match_client":
+		args := c.RemainingArgs()
+		log.Info(args)
+		if c.NextBlock() {
+			err := parseSubBlock(c, u)
+			if err != nil {
+				return err
+			}
+		}
 	case "no_ipv6":
 		args := c.RemainingArgs()
 		if len(args) != 0 {
@@ -333,6 +342,22 @@ func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 		u.debug = true
 	default:
 		return c.Errf("unknown property: %q", dir)
+	}
+	return nil
+}
+
+func parseSubBlock(c *caddy.Controller, u *reloadableUpstream) error {
+	for c.Next() {
+		switch dir := c.Val(); dir {
+		case "force_ecs":
+			args := c.RemainingArgs()
+			if len(args) != 1 {
+				return c.ArgErr()
+			}
+			log.Info(args)
+		default:
+
+		}
 	}
 	return nil
 }

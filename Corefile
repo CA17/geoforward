@@ -9,6 +9,10 @@
         geodat_upgrade_url http://xxxx.com
         geodat_upgrade_cron 0 30 0 * * *
         keyword_table cn data/keyword_cn.txt
+        domain_table apple data/domain_cn.txt
+        netlist_table aliyun data/netlist_cn.txt
+        netlist_table unicom data/netlist_cn.txt
+        netlist_table cmcc data/netlist_cn.txt
         reload @every 3s
     }
 
@@ -17,12 +21,14 @@
         health_check 30s
         to 114.114.114.114 223.5.5.5
         policy round_robin
+        match_client local {
+           force_ecs 1.1.1.1
+        }
+        match_domain baidu.com {
+           match_xxx {
+
+           }
+        }
     }
 
-    geoforward !cn {
-        max_fails 0
-        health_check 30s
-        to 114.114.114.114 223.5.5.5
-        policy round_robin
-    }
 }
