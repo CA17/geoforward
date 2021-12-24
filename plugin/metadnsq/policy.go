@@ -21,6 +21,7 @@ type Policy interface {
 	// nil will be selected if all hosts are down
 	// NOTE: Spray policy will always return a nonnull host
 	Select(pool UpstreamHostPool) *UpstreamHost
+	SelectByTag(pool UpstreamHostPool, tags string) *UpstreamHost
 }
 
 // Random is a policy that selects up hosts from a pool at random.
@@ -28,14 +29,16 @@ type Random struct{}
 
 func (r *Random) String() string { return "random" }
 
-// Select selects an up host at random from the specified pool.
-func (r *Random) Select(pool UpstreamHostPool) *UpstreamHost {
+func (r *Random) SelectByTag(pool UpstreamHostPool, tag string) *UpstreamHost {
 	// Instead of just generating a random index
 	// this is done to prevent selecting a down host
 	var randHost *UpstreamHost
 	count := 0
 	for _, host := range pool {
 		if host.Down() {
+			continue
+		}
+		if tag != "" && host.tag != tag {
 			continue
 		}
 		count++
@@ -51,6 +54,11 @@ func (r *Random) Select(pool UpstreamHostPool) *UpstreamHost {
 	return randHost
 }
 
+// Select selects an up host at random from the specified pool.
+func (r *Random) Select(pool UpstreamHostPool) *UpstreamHost {
+	return r.SelectByTag(pool, "")
+}
+
 // RoundRobin is a policy that selects hosts based on round robin ordering.
 type RoundRobin struct {
 	robin uint32
@@ -60,12 +68,20 @@ func (r *RoundRobin) String() string { return "round_robin" }
 
 // Select selects an up host from the pool using a round robin ordering scheme.
 func (r *RoundRobin) Select(pool UpstreamHostPool) *UpstreamHost {
+	return r.SelectByTag(pool, "")
+}
+
+func (r *RoundRobin) SelectByTag(pool UpstreamHostPool, tag string) *UpstreamHost {
 	poolLen := uint32(len(pool))
 	selection := atomic.AddUint32(&r.robin, 1) % poolLen
 	host := pool[selection]
 	// Move forward to next one if the currently selected host is down
 	for i := uint32(1); host.Down() && i < poolLen; i++ {
-		host = pool[(selection+i)%poolLen]
+		_host := pool[(selection+i)%poolLen]
+		if tag != "" && _host.tag != tag {
+			continue
+		}
+		host = _host
 	}
 	if host.Down() {
 		// All hosts are down, we should return nil to honor Spray.Select()
@@ -81,9 +97,16 @@ func (s *Sequential) String() string { return "sequential" }
 
 // Select always the first that is not Down, nil if all hosts are down
 func (s *Sequential) Select(pool UpstreamHostPool) *UpstreamHost {
+	return s.SelectByTag(pool, "")
+}
+
+func (s *Sequential) SelectByTag(pool UpstreamHostPool, tag string) *UpstreamHost {
 	for i := 0; i < len(pool); i++ {
 		host := pool[i]
 		if host.Down() {
+			continue
+		}
+		if tag != "" && host.tag != tag {
 			continue
 		}
 		return host
@@ -97,6 +120,10 @@ func (s *Sequential) Select(pool UpstreamHostPool) *UpstreamHost {
 type Spray struct{}
 
 func (s *Spray) String() string { return "spray" }
+
+func (s *Spray) SelectByTag(pool UpstreamHostPool, tag string) *UpstreamHost {
+	return s.Select(pool)
+}
 
 // Select selects an up host at random from the specified pool.
 func (s *Spray) Select(pool UpstreamHostPool) *UpstreamHost {

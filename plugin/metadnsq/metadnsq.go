@@ -17,7 +17,7 @@ import (
 
 var log = clog.NewWithPlugin(pluginName)
 
-type GeoForward struct {
+type MetaForward struct {
 	Next      plugin.Handler
 	Upstreams *[]Upstream
 }
@@ -39,7 +39,7 @@ type Upstream interface {
 	Stop() error
 }
 
-func (r *GeoForward) OnStartup() error {
+func (r *MetaForward) OnStartup() error {
 	for _, up := range *r.Upstreams {
 		if err := up.Start(); err != nil {
 			return err
@@ -48,16 +48,17 @@ func (r *GeoForward) OnStartup() error {
 	return nil
 }
 
-func (r *GeoForward) OnShutdown() error {
+func (r *MetaForward) OnShutdown() error {
 	for _, up := range *r.Upstreams {
 		if err := up.Stop(); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func (r *GeoForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Msg) (int, error) {
+func (r *MetaForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dns.Msg) (int, error) {
 	state := &request.Request{W: w, Req: req}
 	name := state.Name()
 
@@ -68,6 +69,13 @@ func (r *GeoForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dn
 		return plugin.NextOrFailure(r.Name(), r.Next, ctx, w, req)
 	}
 	upstream := upstream0.(*reloadableUpstream)
+	var rwrite = NewResponseReverter(w)
+
+	// 请求参数匹配处理
+	qmatcher, rcode := r.matchQuery(upstream, state, rwrite)
+	if rcode != dns.RcodeSuccess {
+		return rcode, nil
+	}
 
 	log.Debugf("%q in name list, t: %v", name, t)
 
@@ -77,11 +85,21 @@ func (r *GeoForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dn
 	for time.Now().Before(deadline) {
 		start := time.Now()
 
-		host := upstream.Select()
+		var host *UpstreamHost
+
+		if qmatcher != nil && qmatcher.to != "" {
+			host = upstream.SelectByTag(qmatcher.to)
+		}
+
+		if host == nil {
+			host = upstream.Select()
+		}
+
 		if host == nil {
 			log.Debug(errNoHealthy)
 			return dns.RcodeServerFailure, errNoHealthy
 		}
+
 		log.Debugf("Upstream host %v is selected", host.Name())
 
 		for {
@@ -110,11 +128,16 @@ func (r *GeoForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dn
 
 			formerr := new(dns.Msg)
 			formerr.SetRcode(state.Req, dns.RcodeFormatError)
-			_ = w.WriteMsg(formerr)
+			_ = rwrite.WriteMsg(formerr)
 			return dns.RcodeSuccess, nil
 		}
 
-		_ = w.WriteMsg(reply)
+		// 响应参数匹配处理
+		rcode := r.matchAnwser(upstream, state, reply)
+		if rcode != dns.RcodeSuccess {
+			return rcode, nil
+		}
+		_ = rwrite.WriteMsg(reply)
 
 		RequestDuration.WithLabelValues(server, host.Name()).Observe(float64(time.Since(start).Milliseconds()))
 		RequestCount.WithLabelValues(server, host.Name()).Inc()
@@ -131,6 +154,100 @@ func (r *GeoForward) ServeDNS(ctx context.Context, w dns.ResponseWriter, req *dn
 		panic("Why upstreamErr is nil?! Are you in a debugger or your machine running slow?")
 	}
 	return dns.RcodeServerFailure, upstreamErr
+}
+
+func (r *MetaForward) matchQuery(upstream *reloadableUpstream, state *request.Request, rwrite *ResponseReverter) (*subMatcher, int) {
+	var name, ip = state.Name(), state.IP()
+	if len(name) > 1 {
+		name = removeTrailingDot(name)
+	}
+	qmatcher := upstream.subMatchers.matchQuery(name)
+	if qmatcher == nil {
+		qmatcher = upstream.subMatchers.matchClientIp(ip)
+	}
+	if qmatcher != nil {
+
+		if upstream.debug {
+			log.Infof("matchQuery %s", qmatcher.String())
+		}
+
+		if qmatcher.notify != "" {
+			hubPlugin.NotifyMessage(qmatcher.notify, state)
+		}
+
+		qmatcher.ipset.ForEach(func(sname string) {
+			ipsetAddIPByName(upstream, state.Req, sname)
+		})
+
+		// 匹配 NXDOMAIN
+		if qmatcher.nxdomain {
+			return nil, dns.RcodeNameError
+		}
+
+		// set ecs
+		if qmatcher.forceEcs != "" {
+			ecsip := hubPlugin.MatchEcs(qmatcher.forceEcs, ip)
+			if ecsip != nil {
+				var qHasECS = getMsgECS(state.Req) != nil
+				var ecs *dns.EDNS0_SUBNET
+				if ip4 := ecsip.To4(); ip4 != nil { // is ipv4
+					ecs = newEDNS0Subnet(ip4, 24, false)
+				} else {
+					if ip6 := ecsip.To16(); ip6 != nil { // is ipv6
+						ecs = newEDNS0Subnet(ip6, 48, true)
+					}
+				}
+				// 强制设置 ECS， 如果请求本身没有 ECS， 那么响应中必须清除 ECS
+				if ecs != nil {
+					setECS(state.Req, ecs)
+					rwrite.removeEcs = qHasECS
+				}
+			}
+		}
+	}
+	return qmatcher, 0
+}
+
+func (r *MetaForward) matchAnwser(upstream *reloadableUpstream, state *request.Request, reply *dns.Msg) int {
+	for _, rr := range reply.Answer {
+		var rmatcher *subMatcher
+		switch rr.(type) {
+		case *dns.A:
+			rra := rr.(*dns.A)
+			rmatcher = upstream.subMatchers.matchAnwserIp(rra.A.String())
+		case *dns.AAAA:
+			rra := rr.(*dns.AAAA)
+			rmatcher = upstream.subMatchers.matchAnwserIp(rra.AAAA.String())
+		case *dns.CNAME:
+			rra := rr.(*dns.CNAME)
+			name := rra.Target
+			if len(name) > 1 {
+				name = removeTrailingDot(name)
+			}
+			rmatcher = upstream.subMatchers.matchAnwser(rra.Target)
+		}
+
+		if rmatcher == nil {
+			continue
+		}
+
+		if upstream.debug {
+			log.Infof("matchAnwser %s", rmatcher.String())
+		}
+
+		if rmatcher.notify != "" {
+			hubPlugin.NotifyMessage(rmatcher.notify, state)
+		}
+
+		rmatcher.ipset.ForEach(func(sname string) {
+			ipsetAddIPByName(upstream, reply, sname)
+		})
+
+		if rmatcher != nil && rmatcher.nxdomain {
+			return dns.RcodeNameError
+		}
+	}
+	return dns.RcodeSuccess
 }
 
 func healthCheck(r *reloadableUpstream, uh *UpstreamHost) {
@@ -152,13 +269,13 @@ func healthCheck(r *reloadableUpstream, uh *UpstreamHost) {
 	}(uh)
 }
 
-func (r *GeoForward) Name() string { return pluginName }
+func (r *MetaForward) Name() string { return pluginName }
 
-func (r *GeoForward) match(server, name string) (Upstream, time.Duration) {
+func (r *MetaForward) match(server, name string) (Upstream, time.Duration) {
 	t1 := time.Now()
 
 	if r.Upstreams == nil {
-		panic("Why GeoForward.Upstreams is nil?!")
+		panic("Why MetaForward.Upstreams is nil?!")
 	}
 
 	if len(name) > 1 {

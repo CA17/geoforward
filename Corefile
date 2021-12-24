@@ -1,34 +1,46 @@
-. {
-    cache 1
+.:533 {
+    #cache 1
     debug
+
     datahub {
         geoip_path data/geoip.dat
         geosite_path data/geosite.dat
         geoip_cache cn hk jp google apple
         geosite_cache cn hk jp private apple
-        geodat_upgrade_url http://xxxx.com
+        geodat_upgrade_url http://teamsacs.mydomain.cn/geodat
         geodat_upgrade_cron 0 30 0 * * *
-        keyword_table cn data/keyword_cn.txt
-        domain_table apple data/domain_cn.txt
-        netlist_table aliyun data/netlist_cn.txt
-        netlist_table unicom data/netlist_cn.txt
-        netlist_table cmcc data/netlist_cn.txt
+        keyword_table msoffice data/keyword_cn.txt
+        domain_table office365 https://teamsacs.appsway.cn/teamsdns/domain/list
+        domain_table ads https://teamsacs.appsway.cn/teamsdns/domain/list
+        netlist_table wjtoffice https://teamsacs.appsway.cn/teamsdns/network/list
+        ecs_table global https://teamsacs.appsway.cn/teamsdns/ecstable/list
+        jwt_secret 9b6de5cc-vcty-4bf1-zpms-0f568ac9da37
+        datapub_listen :9800
+        notify_server  global   https://teamsacs.appsway.cn
         reload @every 3s
     }
 
     metadnsq cn {
+        debug
         max_fails 0
         health_check 30s
-        to 114.114.114.114 223.5.5.5
+        to t1 114.114.114.114 223.5.5.5
+        to t2 8.8.8.8
         policy round_robin
-        match_client local {
-           force_ecs 1.1.1.1
-        }
-        match_domain baidu.com {
-           match_xxx {
 
-           }
+        #matcher_url http://teamsacs.mydomain.cn/matchers
+
+        matcher {
+            client_ips wjtoffice
+            to t1
+            force_ecs global
+        }
+
+        matcher  {
+            query_names ads
+            ipset danger
+            nxdomain
+            notify ads
         }
     }
-
 }

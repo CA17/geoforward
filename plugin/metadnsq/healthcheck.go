@@ -167,6 +167,7 @@ type UpstreamHostDownFunc func(*UpstreamHost) bool
 
 // UpstreamHost represents a single upstream DNS server
 type UpstreamHost struct {
+	tag   string
 	proto string // DNS protocol, i.e. "udp", "tcp", etc.
 	addr  string // IP:PORT
 
@@ -612,9 +613,13 @@ func (hc *HealthCheck) healthCheckWorker() {
 	}
 }
 
+func (hc *HealthCheck) Select() *UpstreamHost {
+	return hc.SelectByTag("")
+}
+
 // Select an upstream host based on the policy and the health check result
 // Taken from proxy/healthcheck/healthcheck.go with modification
-func (hc *HealthCheck) Select() *UpstreamHost {
+func (hc *HealthCheck) SelectByTag(tag string) *UpstreamHost {
 	pool := hc.hosts
 	if len(pool) == 1 {
 		if pool[0].Down() && hc.spray == nil {

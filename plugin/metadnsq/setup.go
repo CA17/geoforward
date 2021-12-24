@@ -19,7 +19,7 @@ func setup(c *caddy.Controller) error {
 		return PluginError(err)
 	}
 
-	r := &GeoForward{Upstreams: &ups}
+	r := &MetaForward{Upstreams: &ups}
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		r.Next = next
 		return r

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ca17/datahub/plugin/pkg/stringset"
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/plugin"
 	pkgtls "github.com/coredns/coredns/plugin/pkg/tls"
@@ -23,8 +24,10 @@ type reloadableUpstream struct {
 	// Flag indicate match any request, i.e. the root zone "."
 	matchGeositeTags    []string
 	nonMatchGeositeTags []string
+	subMatchers         *subMatchers
 	inline              domainSet
 	ignored             domainSet
+	ipset               interface{}
 	*HealthCheck
 	// Bootstrap DNS in IP:Port combo
 	bootstrap []string
@@ -55,25 +58,29 @@ func (u *reloadableUpstream) Match(name string) bool {
 		return false
 	}
 
-	// if u.ignored.Match(name) {
-	// 	log.Debugf("#1 Skip %q since it's ignored", name)
-	// 	return false
-	// }
-	//
-	// if u.inline.Match(name) {
-	// 	return true
-	// }
+	if u.ignored.Match(name) {
+		log.Debugf("#1 Skip %q since it's ignored", name)
+		return false
+	}
 
-	if len(u.matchGeositeTags) > 0 && hubPlugin.MixMatchTags(u.matchGeositeTags, name) {
-		log.Debugf("match %s by tags %s", name, strings.Join(u.matchGeositeTags, " "))
+	if u.inline.Match(name) {
 		return true
 	}
 
+	// 如果存在反相匹配，先做反相匹配， 再做正向匹配
 	if len(u.nonMatchGeositeTags) > 0 {
 		if hubPlugin.MixMatchTags(u.nonMatchGeositeTags, name) {
 			return false
 		}
 		log.Debugf("name %s in !%v", name, u.nonMatchGeositeTags)
+		if len(u.matchGeositeTags) == 0 {
+			return true
+		}
+	}
+
+	// 只有正向匹配
+	if len(u.matchGeositeTags) > 0 && hubPlugin.MixMatchTags(u.matchGeositeTags, name) {
+		log.Debugf("match %s by tags %s", name, strings.Join(u.matchGeositeTags, " "))
 		return true
 	}
 
@@ -82,11 +89,17 @@ func (u *reloadableUpstream) Match(name string) bool {
 
 func (u *reloadableUpstream) Start() error {
 	u.HealthCheck.Start()
+	if err := ipsetSetup(u); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (u *reloadableUpstream) Stop() error {
 	u.HealthCheck.Stop()
+	if err := ipsetShutdown(u); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -120,6 +133,7 @@ func newReloadableUpstream(c *caddy.Controller) (Upstream, error) {
 	u := &reloadableUpstream{
 		matchGeositeTags:    make([]string, 0),
 		nonMatchGeositeTags: make([]string, 0),
+		subMatchers:         newSubMatchers(),
 		ignored:             make(domainSet),
 		inline:              make(domainSet),
 		HealthCheck: &HealthCheck{
@@ -322,10 +336,13 @@ func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 		}
 		u.transport.tlsConfig.ServerName = serverName
 		log.Infof("%v: %v", dir, serverName)
-	case "match_client":
-		args := c.RemainingArgs()
-		log.Info(args)
-		if c.NextBlock() {
+	case "ipset":
+		if err := ipsetParse(c, u); err != nil {
+			return err
+		}
+	case "matcher":
+		// args := c.RemainingArgs()
+		for c.Next() {
 			err := parseSubBlock(c, u)
 			if err != nil {
 				return err
@@ -347,17 +364,83 @@ func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 }
 
 func parseSubBlock(c *caddy.Controller, u *reloadableUpstream) error {
-	for c.Next() {
+	log.Info("::::::::::::::::::::::::::")
+	mch := newSubMatcher()
+	for c.NextBlock() {
+		mch.isValid = true
 		switch dir := c.Val(); dir {
-		case "force_ecs":
+		case "name":
 			args := c.RemainingArgs()
 			if len(args) != 1 {
 				return c.ArgErr()
 			}
-			log.Info(args)
-		default:
-
+			mch.name = args[0]
+			log.Infof("name %s", mch.name)
+		case "to":
+			args := c.RemainingArgs()
+			if len(args) != 1 {
+				return c.ArgErr()
+			}
+			mch.to = args[0]
+			log.Infof("to %s", mch.to)
+		case "client_ips":
+			args := c.RemainingArgs()
+			if len(args) < 0 {
+				return c.ArgErr()
+			}
+			mch.clientIps = stringset.NewFromSlice(args)
+			log.Infof("client_ips %s", mch.clientIps.String())
+		case "anwser_ips":
+			args := c.RemainingArgs()
+			if len(args) < 0 {
+				return c.ArgErr()
+			}
+			mch.anwserIps = stringset.NewFromSlice(args)
+			log.Infof("anwser_ips %s", mch.anwserIps.String())
+		case "query_names":
+			args := c.RemainingArgs()
+			if len(args) < 0 {
+				return c.ArgErr()
+			}
+			mch.queryNames = stringset.NewFromSlice(args)
+			log.Infof("query_names %s", mch.queryNames.String())
+		case "anwser_cnames":
+			args := c.RemainingArgs()
+			if len(args) < 0 {
+				return c.ArgErr()
+			}
+			mch.anwserCNames = stringset.NewFromSlice(args)
+			log.Infof("anwser_cnames %s", mch.anwserCNames.String())
+		case "notify":
+			args := c.RemainingArgs()
+			if len(args) < 1 {
+				return c.ArgErr()
+			}
+			mch.notify = args[0]
+			log.Infof("notify %s", mch.notify)
+		case "ipset":
+			args := c.RemainingArgs()
+			if len(args) < 1 {
+				return c.ArgErr()
+			}
+			mch.ipset = stringset.NewFromSlice(args)
+			log.Infof("ipset %s", mch.ipset.String())
+		case "force_ecs":
+			args := c.RemainingArgs()
+			if len(args) == 0 {
+				mch.forceEcs = "global"
+			} else {
+				mch.forceEcs = args[0]
+			}
+			log.Infof("force_ecs %s", mch.forceEcs)
+		case "nxdomain":
+			mch.nxdomain = true
+			log.Info("nxdomain")
 		}
+	}
+	if mch.isValid {
+		u.subMatchers.addSubMatcher(mch)
+		log.Info("<< add new sub matcher ")
 	}
 	return nil
 }
@@ -411,12 +494,14 @@ func parseDuration(c *caddy.Controller) (time.Duration, error) {
 }
 
 func parseTo(c *caddy.Controller, u *reloadableUpstream) error {
-	args := c.RemainingArgs()
-	if len(args) == 0 {
+	toargs := c.RemainingArgs()
+	if len(toargs) < 1 {
 		return c.ArgErr()
 	}
 
-	toHosts, err := HostPort(args)
+	tag := toargs[0]
+
+	toHosts, err := HostPort(toargs[1:])
 	if err != nil {
 		return err
 	}
@@ -426,6 +511,7 @@ func parseTo(c *caddy.Controller, u *reloadableUpstream) error {
 		log.Infof("Transport: %v Address: %v", trans, addr)
 
 		uh := &UpstreamHost{
+			tag:   tag,
 			proto: trans,
 			// Not an error, host and tls server name will be separated later
 			addr:     addr,

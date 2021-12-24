@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/coredns/coredns/request"
-	"github.com/m13253/dns-over-https/v2/json-dns"
-	"github.com/miekg/dns"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/coredns/coredns/request"
+	"github.com/m13253/dns-over-https/v2/json-dns"
+	"github.com/miekg/dns"
 )
 
 func (uh *UpstreamHost) jsonDnsExchange(ctx context.Context, state *request.Request, requestContentType string) (*http.Response, error) {
