@@ -49,11 +49,11 @@ func (m *subMatcher) String() string {
 }
 
 func (m *subMatcher) matchQueryName(name string) bool {
-	return hubPlugin.MixMatchTags(m.queryNames.Slice(), name)
+	return hubPlugin.MixMatchTags(m.queryNames.Slice(), name, false)
 }
 
 func (m *subMatcher) matchAnwserCname(name string) bool {
-	return hubPlugin.MixMatchTags(m.anwserCNames.Slice(), name)
+	return hubPlugin.MixMatchTags(m.anwserCNames.Slice(), name, false)
 }
 
 func (m *subMatcher) matchClientIp(ns iplib.Net) bool {

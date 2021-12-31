@@ -69,7 +69,7 @@ func (u *reloadableUpstream) Match(name string) bool {
 
 	// 如果存在反相匹配，先做反相匹配， 再做正向匹配
 	if len(u.nonMatchGeositeTags) > 0 {
-		if hubPlugin.MixMatchTags(u.nonMatchGeositeTags, name) {
+		if !hubPlugin.MixMatchTags(u.nonMatchGeositeTags, name, true) {
 			return false
 		}
 		log.Debugf("name %s in !%v", name, u.nonMatchGeositeTags)
@@ -79,7 +79,7 @@ func (u *reloadableUpstream) Match(name string) bool {
 	}
 
 	// 只有正向匹配
-	if len(u.matchGeositeTags) > 0 && hubPlugin.MixMatchTags(u.matchGeositeTags, name) {
+	if len(u.matchGeositeTags) > 0 && hubPlugin.MixMatchTags(u.matchGeositeTags, name, false) {
 		log.Debugf("match %s by tags %s", name, strings.Join(u.matchGeositeTags, " "))
 		return true
 	}
@@ -242,6 +242,14 @@ func parseFrom(c *caddy.Controller, u *reloadableUpstream) error {
 
 func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 	switch dir := c.Val(); dir {
+	case "bootstrap":
+		// Multiple "except"s will be merged together
+		args := c.RemainingArgs()
+		if len(args) == 0 {
+			return c.ArgErr()
+		}
+		u.bootstrap = args
+		log.Infof("%v: %v", dir, u.bootstrap)
 	case "except":
 		// Multiple "except"s will be merged together
 		args := c.RemainingArgs()
@@ -343,6 +351,9 @@ func parseBlock(c *caddy.Controller, u *reloadableUpstream) error {
 	case "matcher":
 		// args := c.RemainingArgs()
 		for c.Next() {
+			if c.Val() == "}" {
+				break
+			}
 			err := parseSubBlock(c, u)
 			if err != nil {
 				return err
